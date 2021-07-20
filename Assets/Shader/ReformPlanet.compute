@@ -1,0 +1,70 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+int NumCraters;
+float RimWidth;
+float RimSteepness;
+float Smoothness;
+float FloorHeight;
+
+struct Crater
+{
+    float3 position;
+    float radius;
+    float originRadius;
+};
+
+struct SourceVertex
+{
+    float3 position;
+    float3 normals;
+};
+
+RWStructuredBuffer<Crater> craters;
+RWStructuredBuffer<SourceVertex> originVertices;
+
+// new calculated vertices
+RWStructuredBuffer<half3> vertices;
+
+float SmoothMin(float a, float b, float k)
+{
+    float h = saturate((b - a + k) / (2 * k));
+    return a * h + b * (1 - h) - k * h * (1 - h);
+}
+
+float SmoothMax(float a, float b, float k)
+{
+    float h = saturate((b - a + (-k)) / (2 * (-k)));
+    return a * h + b * (1 - h) - (-k) * h * (1 - h);
+}
+
+[numthreads(128,1,1)]
+void CSMain (uint id : SV_DispatchThreadID)
+{
+    if (id >= NumCraters)
+    {
+        return;
+    }
+
+    float3 VertexPos = originVertices[id].position;
+    float craterHeight = 0;
+
+    for (int i = 0; i < NumCraters; i++)
+    {
+        float3 craterPos = normalize(craters[i].position);
+
+        float x = length(VertexPos - craterPos) / craters[i].radius;
+
+        float cavity = x * x - 1;
+        float rimX = min(x - 1 - RimWidth, 0);
+        float rim = RimSteepness * rimX * rimX;
+
+        float craterShape = SmoothMax(cavity, FloorHeight, Smoothness);
+        craterShape = SmoothMin(craterShape, rim, Smoothness);
+
+        craterHeight += craterShape * craters[i].radius;
+    }
+
+    float Height = 1 + craterHeight;
+    vertices[i] = half3(VertexPos.x * Height, VertexPos.y * Height, VertexPos.z * Height);
+}
